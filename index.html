@@ -786,7 +786,7 @@ function update(){
     if(f.x - f.totalR < WALL_W){ f.x = WALL_W + f.totalR; f.vx = Math.abs(f.vx) * 0.4; }
     if(f.x + f.totalR > w - WALL_W){ f.x = w - WALL_W - f.totalR; f.vx = -Math.abs(f.vx) * 0.4; }
     if(f.y + f.totalR > h - WALL_W){ f.y = h - WALL_W - f.totalR; f.vy = -Math.abs(f.vy) * 0.35; f.vx *= 0.92; }
-    if(f.y - f.totalR < 0){ f.y = f.totalR; f.vy = Math.abs(f.vy) * 0.2; }
+    if(f.y - f.totalR < DEATH_Y){ f.y = DEATH_Y + f.totalR; f.vy = Math.abs(f.vy) * 0.2; }
   }
 
   resolveCollisions();
