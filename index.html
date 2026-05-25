@@ -705,7 +705,7 @@ function triggerVictory(x, y){
   // 展示排行榜（高亮我的排名）
   setTimeout(() => {
     showRankList(true);
-  }, 500);
+  }, 800);
   
   for(let i = 0; i < 60; i++){
     const a = Math.random() * Math.PI * 2;
@@ -1055,6 +1055,12 @@ function restart(){
 
 // ---------- 难度选择 ----------
 function startGame(difficulty){
+  const currentNick = getNickname();
+  const newNick = prompt('请输入你的昵称（排行榜显示用）', currentNick);
+  if(newNick && newNick.trim()){
+    setNickname(newNick.trim());
+  }
+  
   currentDifficulty = difficulty;
   currentConfig = DIFFICULTY[difficulty];
   
@@ -1093,148 +1099,141 @@ function goBack(){
   document.getElementById('victoryShow').classList.remove('show');
 }
 
-// ---------- 排行榜系统 ----------
-const RANK_KEY = 'fishingGameRank';
-const DEVICE_ID_KEY = 'fishingGameDeviceId';
-
-function getDeviceId(){
-  let id = localStorage.getItem(DEVICE_ID_KEY);
-  if(!id){
-    id = 'device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    localStorage.setItem(DEVICE_ID_KEY, id);
-  }
-  return id;
-}
+// ---------- 联网排行榜系统 ----------
+const RANK_API = 'https://jsonblob.com/api/jsonBlob/019e5da9-974f-7e5c-a59e-a7d3c3e4a3dd';
+const NICK_KEY = 'fishingGameNick';
 
 function getNickname(){
-  let nick = localStorage.getItem('fishingGameNick');
+  let nick = localStorage.getItem(NICK_KEY);
   if(!nick){
     nick = '玩家' + Math.floor(Math.random() * 9000 + 1000);
-    localStorage.setItem('fishingGameNick', nick);
+    localStorage.setItem(NICK_KEY, nick);
   }
   return nick;
 }
 
 function setNickname(nick){
-  localStorage.setItem('fishingGameNick', nick);
+  localStorage.setItem(NICK_KEY, nick);
 }
 
-function getRankList(){
-  const data = localStorage.getItem(RANK_KEY);
-  return data ? JSON.parse(data) : [];
+// 从云端读取排行榜
+async function fetchRankList(){
+  try {
+    const res = await fetch(RANK_API);
+    if(!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch(e){
+    console.warn('读取排行榜失败，使用本地缓存');
+    const cached = localStorage.getItem('rankCache');
+    return cached ? JSON.parse(cached) : [];
+  }
 }
 
-function saveRankList(list){
-  localStorage.setItem(RANK_KEY, JSON.stringify(list));
+// 保存排行榜到云端 + 本地缓存
+async function pushRankList(list){
+  // 本地缓存（离线时备用）
+  localStorage.setItem('rankCache', JSON.stringify(list));
+  // 推送到云端
+  try {
+    await fetch(RANK_API, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(list)
+    });
+  } catch(e){
+    console.warn('上传排行榜失败');
+  }
 }
 
-function addToRank(score, difficulty){
-  const deviceId = getDeviceId();
+// 添加成绩到排行榜
+async function addToRank(score, difficulty){
   const nickname = getNickname();
-  const rankList = getRankList();
+  const diffLabel = difficulty === 'easy' ? '低难度' : '高难度';
+  const rankList = await fetchRankList();
   
-  // 每次成绩都添加新记录，不覆盖历史成绩
-  // 使用唯一ID区分每次记录
   const recordId = 'record_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
   rankList.push({
     recordId: recordId,
-    deviceId: deviceId,
     nickname: nickname,
     score: score,
-    difficulty: difficulty,
+    difficulty: diffLabel,
     time: Date.now()
   });
   
-  // 按分数排序
+  // 按分数排序，保留前50条
   rankList.sort((a, b) => b.score - a.score);
-  // 只保留前20条记录（展示用）
-  const displayList = rankList.slice(0, 20);
-  saveRankList(displayList);
+  const displayList = rankList.slice(0, 50);
+  await pushRankList(displayList);
   return displayList;
 }
 
-function getMyRank(){
-  const rankList = getRankList();
-  const deviceId = getDeviceId();
-  const myIdx = rankList.findIndex(item => item.deviceId === deviceId);
-  return myIdx >= 0 ? myIdx + 1 : -1;
-}
-
-function showRankList(highlightMe = false){
-  const rankList = getRankList();
-  const myDeviceId = getDeviceId();
-  const myRank = highlightMe ? getMyRank() : -1;
+// 显示排行榜（联网加载）
+async function showRankList(highlightMe = false){
   const rankContent = document.getElementById('rankContent');
+  rankContent.innerHTML = '<div style="opacity:.6;padding:30px;text-align:center;">加载中...</div>';
+  document.getElementById('rankList').classList.add('show');
+  
+  const rankList = await fetchRankList();
+  const myNick = getNickname();
   
   if(rankList.length === 0){
     rankContent.innerHTML = '<div style="opacity:.6;padding:30px;text-align:center;">暂无排行数据，开始游戏吧！</div>';
-  } else {
-    let html = '';
-    rankList.forEach((item, idx) => {
-      const isFirst = idx === 0;
-      const isMe = item.deviceId === myDeviceId;
-      let rankClass = 'rank-item';
-      let medal = '';
-      let badge = '';
-      
-      if(isFirst){
-        rankClass += ' first';
-        medal = '🥇';
-        badge = '<span class="rank-badge gold">获得88网费</span>';
-      } else if(idx === 1){
-        rankClass += ' highlight';
-        medal = '🥈';
-        badge = '<span class="rank-badge silver">就差一点！</span>';
-      } else if(idx === 2){
-        medal = '🥉';
-      } else {
-        medal = (idx + 1);
-      }
-      
-      if(isMe && !isFirst){
-        rankClass += ' highlight';
-        badge += '<span style="margin-left:6px;font-size:10px;color:#667eea;">(我)</span>';
-      }
-      
-      html += `<div class="${rankClass}">
-        <div class="rank-left">
-          <span class="rank-medal">${medal}</span>
-          <span class="rank-nickname">${item.nickname}</span>
-          ${badge}
-        </div>
-        <span class="rank-score">${item.score}分</span>
-      </div>`;
-    });
-    
-    // 如果我不在前10名，但在排行榜中
-    if(myRank > 10 || (myRank > 0 && myRank <= 10)){
-      // 已经在上面处理了
-    } else if(myRank === -1 && score > 0){
-      // 显示我的排名（不在前10）
-      const myRecord = getRankList().find(item => item.deviceId === myDeviceId);
-      if(myRecord){
-        html += `<div class="rank-item highlight" style="margin-top:16px;border-style:dashed;">
-          <div class="rank-left">
-            <span class="rank-medal">-</span>
-            <span class="rank-nickname">${myRecord.nickname}</span>
-            <span style="margin-left:6px;font-size:10px;color:#667eea;">(我)</span>
-          </div>
-          <span class="rank-score">${myRecord.score}分</span>
-        </div>`;
-      }
-    }
-    
-    // 显示我的排名信息
-    if(myRank > 0){
-      html += `<div style="text-align:center;margin-top:16px;padding:12px;background:rgba(102,126,234,.2);border-radius:12px;color:#fff;font-size:13px;">
-        您的排名：第 <strong style="color:#ffd700;font-size:18px;">${myRank}</strong> 名
-      </div>`;
-    }
-    
-    rankContent.innerHTML = html;
+    return;
   }
   
-  document.getElementById('rankList').classList.add('show');
+  let myRank = -1;
+  let html = '';
+  
+  rankList.forEach((item, idx) => {
+    const isFirst = idx === 0;
+    const isMe = item.nickname === myNick;
+    if(isMe && myRank === -1) myRank = idx + 1;
+    
+    let rankClass = 'rank-item';
+    let medal = '';
+    let badge = '';
+    
+    if(isFirst){
+      rankClass += ' first';
+      medal = '🥇';
+      badge = '<span class="rank-badge gold">获得88网费</span>';
+    } else if(idx === 1){
+      rankClass += ' highlight';
+      medal = '🥈';
+      badge = '<span class="rank-badge silver">就差一点！</span>';
+    } else if(idx === 2){
+      medal = '🥉';
+    } else {
+      medal = (idx + 1);
+    }
+    
+    if(isMe && !isFirst){
+      rankClass += ' highlight';
+      badge += '<span style="margin-left:6px;font-size:10px;color:#667eea;">(我)</span>';
+    }
+    
+    const diffTag = item.difficulty 
+      ? '<span style="font-size:9px;opacity:.5;margin-left:4px;">' + item.difficulty + '</span>' 
+      : '';
+    
+    html += `<div class="${rankClass}">
+      <div class="rank-left">
+        <span class="rank-medal">${medal}</span>
+        <span class="rank-nickname">${item.nickname}</span>
+        ${diffTag}${badge}
+      </div>
+      <span class="rank-score">${item.score}分</span>
+    </div>`;
+  });
+  
+  if(myRank > 0){
+    html += `<div style="text-align:center;margin-top:16px;padding:12px;background:rgba(102,126,234,.2);border-radius:12px;color:#fff;font-size:13px;">
+      您的排名：第 <strong style="color:#ffd700;font-size:18px;">${myRank}</strong> 名
+    </div>`;
+  }
+  
+  rankContent.innerHTML = html;
 }
 
 function hideRankList(){
